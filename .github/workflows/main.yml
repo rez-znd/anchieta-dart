@@ -13,49 +13,56 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          path: aluno_code # Baixa o código do aluno numa pasta separada
+          path: aluno_code
 
       - name: Checkout Testes Oficiais
         uses: actions/checkout@v4
         with:
           ref: main
-          path: oficial_code # Baixa o seu código original em outra pasta
+          path: oficial_code
 
       - name: Restaurar Testes Oficiais
         run: |
-          # Remove os testes que o aluno pode ter alterado
           rm -rf aluno_code/test
-          # Copia os seus testes oficiais para dentro da pasta do aluno
           cp -r oficial_code/test aluno_code/test
-          # (Opcional) Se houver um arquivo de pontuação ou config, restaure também
-          # cp oficial_code/pubspec.yaml aluno_code/pubspec.yaml
 
       - name: Run Tests
         working-directory: ./aluno_code
         run: |
           dart pub get
-          # Usando -r json para Dart puro
+          # Gerando o JSON e garantindo que o arquivo exista
           dart test -r json > machine_results.json || true
 
       - name: Show Summary
         working-directory: ./aluno_code
         run: |
-          # No Dart puro, buscamos o tipo de evento 'testDone' e o resultado
-          PASSED=$(grep -c '"type":"testDone","result":"success"' machine_results.json || echo "0")
-          FAILED=$(grep -c '"type":"testDone","result":"failure"' machine_results.json || echo "0")
-          ERROR=$(grep -c '"type":"testDone","result":"error"' machine_results.json || echo "0")
+          # 1. Conta ocorrências e garante que o resultado seja numérico
+          # O 'grep -c' no Linux retorna 0 se não achar, mas vamos garantir
+          PASSED=$(grep -c '"result":"success"' machine_results.json || echo 0)
+          FAILED=$(grep -c '"result":"failure"' machine_results.json || echo 0)
+          ERROR=$(grep -c '"result":"error"' machine_results.json || echo 0)
           
+          # 2. Tratamento para caso o grep retorne vazio por erro de permissão
+          PASSED=${PASSED:-0}
+          FAILED=${FAILED:-0}
+          ERROR=${ERROR:-0}
+          
+          # 3. Cálculos
           REPROVADOS=$((FAILED + ERROR))
           TOTAL=$((PASSED + REPROVADOS))
 
           echo "------------------------------------------"
-          echo "RESULTADOS FINAIS"
+          echo "RESULTADOS FINAIS (Ambiente Linux)"
           echo "------------------------------------------"
-          echo "Total: $TOTAL"
+          echo "Total de testes: $TOTAL"
           echo "Passou: $PASSED"
           echo "Falhou: $REPROVADOS"
           echo "------------------------------------------"
           
-          if [ $REPROVADOS -ne 0 ]; then
+          # 4. Saída condicional
+          if [ "$REPROVADOS" -gt 0 ]; then
+            echo "Status: REPROVADO"
             exit 1
+          else
+            echo "Status: APROVADO"
           fi
